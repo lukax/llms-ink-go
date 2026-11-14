@@ -30,6 +30,3 @@ require (
 	golang.org/x/text v0.28.0 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
 )
-
-// Local development only; ignored by consumers. Remove once v0.1.0 is tagged if preferred.
-replace github.com/lukax/llms-ink-go => ../
