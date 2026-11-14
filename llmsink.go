@@ -104,7 +104,7 @@ type Media struct {
 // Result is the response of GET /api/v0/llms.
 type Result struct {
 	URL         string  `json:"url"`         // the link after normalization
-	Kind        string  `json:"kind"`        // site, section, page, repo, document, video
+	Kind        string  `json:"kind"`        // site, section, page, repo, document, video, channel
 	Source      string  `json:"source"`      // native or generated
 	Mode        Mode    `json:"mode"`        // llms or full
 	Title       string  `json:"title"`       //
