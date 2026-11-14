@@ -21,7 +21,7 @@ import (
 )
 
 // Version is this module's version, sent in the User-Agent.
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // DefaultBaseURL is the production API origin.
 const DefaultBaseURL = "https://llms.ink"
@@ -131,10 +131,40 @@ type BrokenLink struct {
 	Status int    `json:"status"`
 }
 
-// CheckResult is the response of GET /api/v0/check.
+// ParsedLink is a link in an llms.txt section. URL is resolved against the
+// base or fetched URL when possible, else as written; Notes is the text after
+// ":" (nil if none); Line is the 1-based source line.
+type ParsedLink struct {
+	Title string  `json:"title"`
+	URL   string  `json:"url"`
+	Notes *string `json:"notes"`
+	Line  int     `json:"line"`
+}
+
+// ParsedSection is an H2 section of llms.txt. Optional is true for a section
+// named "Optional" (case-insensitive); Text is non-link content (nil if none).
+type ParsedSection struct {
+	Name     string       `json:"name"`
+	Optional bool         `json:"optional"`
+	Text     *string      `json:"text"`
+	Links    []ParsedLink `json:"links"`
+}
+
+// Parsed is the structure of an llms.txt file: the H1 title, the blockquote
+// summary, details (markdown before the first H2) and sections.
+type Parsed struct {
+	Title    *string         `json:"title"`
+	Summary  *string         `json:"summary"`
+	Details  *string         `json:"details"`
+	Sections []ParsedSection `json:"sections"`
+}
+
+// CheckResult is the response of Client.Check and Client.CheckText.
+// Site and URL are nil only for CheckText without a base; LlmsFull is nil when
+// llms-full.txt wasn't checked; Parsed is nil when nothing was found.
 type CheckResult struct {
-	Site     string  `json:"site"`
-	URL      string  `json:"url"`
+	Site     *string `json:"site"`
+	URL      *string `json:"url"`
 	Found    bool    `json:"found"`
 	Status   int     `json:"status"`
 	Title    *string `json:"title"`
@@ -145,13 +175,22 @@ type CheckResult struct {
 		Checked int          `json:"checked"`
 		Broken  []BrokenLink `json:"broken"`
 	} `json:"links"`
-	LlmsFull bool         `json:"llmsFull"`
+	LlmsFull *bool        `json:"llmsFull"`
 	Issues   []CheckIssue `json:"issues"`
 	Summary  struct {
 		Errors   int `json:"errors"`
 		Warnings int `json:"warnings"`
 	} `json:"summary"`
-	CheckedAt string `json:"checkedAt"`
+	Parsed    *Parsed `json:"parsed"`
+	CheckedAt string  `json:"checkedAt"`
+}
+
+// CheckTextOptions are optional parameters for Client.CheckText.
+type CheckTextOptions struct {
+	// Base is a public URL that resolves relative links and is reported as Site/URL.
+	Base string
+	// Links also checks up to 25 linked URLs, plus llms-full.txt next to Base when set.
+	Links bool
 }
 
 // Error is an API error (RFC 9457 problem details; codes at
@@ -196,7 +235,7 @@ func (c *Client) Llms(ctx context.Context, link string, opts LlmsOptions) (*Resu
 		q.Set("fresh", "1")
 	}
 	var r Result
-	if err := c.get(ctx, "/api/v0/llms", q, &r); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/v0/llms", q, "", &r); err != nil {
 		return nil, err
 	}
 	return &r, nil
@@ -205,16 +244,45 @@ func (c *Client) Llms(ctx context.Context, link string, opts LlmsOptions) (*Resu
 // Check validates a site's own llms.txt: format, broken links, llms-full.txt.
 func (c *Client) Check(ctx context.Context, link string) (*CheckResult, error) {
 	var r CheckResult
-	if err := c.get(ctx, "/api/v0/check", url.Values{"url": {link}}, &r); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/v0/check", url.Values{"url": {link}}, "", &r); err != nil {
 		return nil, err
 	}
 	return &r, nil
 }
 
-func (c *Client) get(ctx context.Context, path string, q url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path+"?"+q.Encode(), nil)
+// CheckText validates llms.txt content you already have (up to 2,000,000
+// bytes) without hosting it: format, structure and, with Links, broken links.
+func (c *Client) CheckText(ctx context.Context, text string, opts CheckTextOptions) (*CheckResult, error) {
+	q := url.Values{}
+	if opts.Base != "" {
+		q.Set("base", opts.Base)
+	}
+	if opts.Links {
+		q.Set("links", "1")
+	}
+	var r CheckResult
+	if err := c.do(ctx, http.MethodPost, "/api/v0/check", q, text, &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// do sends a request; POST sends text as a text/plain body.
+func (c *Client) do(ctx context.Context, method, path string, q url.Values, text string, out any) error {
+	u := c.baseURL + path
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+	var rd io.Reader
+	if method == http.MethodPost {
+		rd = strings.NewReader(text)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rd)
 	if err != nil {
 		return err
+	}
+	if rd != nil {
+		req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "llms-ink-go/"+Version)

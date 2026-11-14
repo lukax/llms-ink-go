@@ -17,9 +17,19 @@ fmt.Println(r.Title, r.Tokens, r.Text)
 
 chk, err := c.Check(ctx, "llmstxt.org")
 fmt.Println(chk.Found, chk.Summary.Errors, chk.Summary.Warnings)
+
+// lint llms.txt you haven't published yet (POST /api/v0/check)
+res, err := c.CheckText(ctx, text, llmsink.CheckTextOptions{Base: "https://example.com", Links: true})
+for _, s := range res.Parsed.Sections {
+	fmt.Println(s.Name, len(s.Links))
+}
 ```
 
 `LlmsOptions{Mode, Fresh}`: `ModeLLMS` (default, the index) or `ModeFull` (the content); `Fresh: true` skips the cache.
+
+`CheckResult.Parsed` (nil when nothing was found) holds the parsed llms.txt: `Title`, `Summary`, `Details`, and `Sections` with their `Links` (`Title`, `URL`, `Notes`, `Line`). `CheckTextOptions{Base, Links}`: `Base` resolves relative links and is reported as `Site`/`URL` (nil without it); `Links` also checks linked URLs and, with `Base`, llms-full.txt (`LlmsFull` is nil otherwise).
+
+**v0.2.0 is breaking:** `CheckResult.Site` and `URL` are now `*string` and `LlmsFull` is `*bool`. See [CHANGELOG.md](CHANGELOG.md).
 
 Options: `WithKey(key)`, `WithBaseURL(url)`, `WithHTTPClient(*http.Client)`.
 

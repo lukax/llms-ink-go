@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,8 +56,37 @@ func TestAnonymousAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Title != nil || r.Links.Broken[0].URL != "x" || *r.Issues[0].Line != 3 || r.Summary.Errors != 1 {
+	if r.Title != nil || r.Links.Broken[0].URL != "x" || *r.Issues[0].Line != 3 || r.Summary.Errors != 1 || *r.Site != "https://a.b" || *r.LlmsFull || r.Parsed != nil {
 		t.Errorf("check = %+v", r)
+	}
+}
+
+func TestCheckText(t *testing.T) {
+	var method, query, ctype, body string
+	c := stub(t, func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		method, query, ctype, body = r.Method+" "+r.URL.Path, r.URL.RawQuery, r.Header.Get("Content-Type"), string(b)
+		fmt.Fprint(w, `{"site":null,"url":null,"found":true,"status":200,"title":"T","tokens":5,"sections":1,"links":{"total":1,"checked":0,"broken":[]},"llmsFull":null,"issues":[],"summary":{"errors":0,"warnings":0},"parsed":{"title":"T","summary":"S","details":null,"sections":[{"name":"Optional","optional":true,"text":null,"links":[{"title":"A","url":"/a","notes":"n","line":5}]}]},"checkedAt":"t"}`)
+	})
+	r, err := c.CheckText(context.Background(), "# T\n", CheckTextOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != "POST /api/v0/check" || query != "" || ctype != "text/plain; charset=utf-8" || body != "# T\n" {
+		t.Errorf("request = %s ?%s %s %q", method, query, ctype, body)
+	}
+	p := r.Parsed
+	if r.Site != nil || r.URL != nil || r.LlmsFull != nil || p == nil || *p.Title != "T" || *p.Summary != "S" || p.Details != nil || !p.Sections[0].Optional || p.Sections[0].Text != nil {
+		t.Fatalf("result = %+v", r)
+	}
+	if l := p.Sections[0].Links[0]; l.Title != "A" || l.URL != "/a" || *l.Notes != "n" || l.Line != 5 {
+		t.Errorf("link = %+v", l)
+	}
+	if _, err := c.CheckText(context.Background(), "x", CheckTextOptions{Base: "https://a.b", Links: true}); err != nil {
+		t.Fatal(err)
+	}
+	if query != "base=https%3A%2F%2Fa.b&links=1" {
+		t.Errorf("query = %s", query)
 	}
 }
 

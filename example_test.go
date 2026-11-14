@@ -27,6 +27,23 @@ func ExampleClient_Check() {
 	fmt.Println(r.Found, r.Summary.Errors, r.Summary.Warnings)
 }
 
+func ExampleClient_CheckText() {
+	c := llmsink.New()
+	text := "# Example\n\n> One line.\n\n## Docs\n\n- [Guide](/guide.md): start here\n"
+	r, err := c.CheckText(context.Background(), text, llmsink.CheckTextOptions{Base: "https://example.com"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if r.Parsed != nil {
+		for _, s := range r.Parsed.Sections {
+			for _, l := range s.Links {
+				fmt.Println(s.Name, l.Title, l.URL)
+			}
+		}
+	}
+	fmt.Println(r.Summary.Errors, r.Summary.Warnings)
+}
+
 func ExampleError() {
 	c := llmsink.New(llmsink.WithKey("lk_..."))
 	_, err := c.Llms(context.Background(), "example.com", llmsink.LlmsOptions{})
